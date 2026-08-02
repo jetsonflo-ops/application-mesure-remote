@@ -268,7 +268,9 @@ class BluetoothCore:
         if bledevice is None:
             try:
                 bledevice = await BleakScanner.find_device_by_address(
-                    address, timeout=FIND_DEVICE_TIMEOUT
+                    address,
+                    timeout=FIND_DEVICE_TIMEOUT,
+                    scanning_mode="active",  # SCAN_RSP → nom + détection fiable
                 )
             except Exception:
                 pass
@@ -277,7 +279,10 @@ class BluetoothCore:
         if bledevice is None:
             logger.info("BLE core: scan complet pour trouver %s...", address)
             try:
-                devices = await BleakScanner.discover(timeout=SCAN_TIMEOUT)
+                devices = await BleakScanner.discover(
+                    timeout=SCAN_TIMEOUT,
+                    scanning_mode="active",  # SCAN_RSP → nom + détection
+                )
                 for d in devices:
                     if self._scanner:
                         self._scanner.register_scanned_device(d)
@@ -293,7 +298,7 @@ class BluetoothCore:
 
         # Arreter le scan continu avant de connecter (BlueZ best practice)
         scanner_was_running = False
-        if self._scanner and self._scanner._continuous_scanner is not None:
+        if self._scanner and self._scanner.is_continuous_active():
             try:
                 await self._scanner.stop_continuous()
                 scanner_was_running = True

@@ -56,6 +56,10 @@ class BleScanner:
         """Retourne une copie des references BLEDevice scannées recemment."""
         return dict(self._scanned_devices)
 
+    def is_continuous_active(self) -> bool:
+        """Vrai si le scan continu est en cours (scanner démarré)."""
+        return self._running and self._continuous_scanner is not None
+
     async def start_continuous(self) -> None:
         """Demarre le scan continu pour alimenter le cache."""
         if self._running:

@@ -111,11 +111,13 @@ async def forget_device(address: str) -> bool:
 
 
 async def list_paired_devices() -> List[Dict[str, Any]]:
-    """Liste les périphériques BLE pairés sous Windows.
+    """Liste les périphériques Bluetooth (LE + classique) connus de Windows.
 
-    Utile pour le diagnostic et la gestion des appareils
-    qui pourraient causer des conflits.
-    
+    Utilise DeviceInformation.find_all_async() SANS sélecteur : la version
+    winrt Python installée ne supporte pas la surcharge avec sélecteur
+    ("Invalid parameter count" — testé sur flori), mais l'énumération
+    complète retourne les appareils BLE/classiques avec leurs vrais noms.
+
     Returns:
         Liste de dictionnaires contenant les informations des appareils
     """
@@ -126,22 +128,28 @@ async def list_paired_devices() -> List[Dict[str, Any]]:
     try:
         from winrt.windows.devices.enumeration import DeviceInformation
 
-        try:
-            selector = (
-                "System.Devices.Aep.CanPair:=System.StructuredQueryType.Boolean#True"
-            )
-            devices = await DeviceInformation.find_all_async_async(selector)
-            for dev in devices:
-                if dev.name and "bluetooth" in dev.kind.lower():
-                    paired.append(
-                        {
-                            "id": dev.id,
-                            "name": dev.name,
-                            "is_paired": dev.pairing.is_paired if dev.pairing else False,
-                        }
-                    )
-        except Exception as e:
-            logger.debug(f"Erreur enumeration appareils: {e}")
+        # Énumération complète (sans sélecteur : surcharge non supportée)
+        devices = await DeviceInformation.find_all_async()
+        seen = set()
+        for dev in devices:
+            did = (dev.id or "").lower()
+            # Filtrer les appareils Bluetooth (BLE : BTHLEDevice / AEP,
+            # classique : BTHENUM / BTHLE / MS_RFCOMM)
+            if not any(k in did for k in ("bthle", "bthenum", "bth#", "ms_rfcomm", "aep")):
+                continue
+            name = (dev.name or "").strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            try:
+                is_paired = dev.pairing.is_paired if dev.pairing else False
+            except Exception:
+                is_paired = False
+            paired.append({
+                "id": dev.id,
+                "name": name,
+                "is_paired": is_paired,
+            })
     except Exception as e:
-        logger.debug(f"Erreur winrt module: {e}")
+        logger.debug(f"Erreur enumeration appareils: {e}")
     return paired

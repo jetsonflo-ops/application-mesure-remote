@@ -475,7 +475,9 @@ class BleConnection:
                 try:
                     if _HAS_BLEAK:
                         device = await BleakScanner.find_device_by_address(
-                            self.address, timeout=FIND_DEVICE_TIMEOUT
+                            self.address,
+                            timeout=FIND_DEVICE_TIMEOUT,
+                            scanning_mode="active",  # SCAN_RSP pour détection fiable
                         )
                         if device:
                             success = await self.connect(device, timeout=CONNECT_TIMEOUT)
