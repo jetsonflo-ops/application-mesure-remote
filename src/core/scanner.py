@@ -261,3 +261,15 @@ class BleScanner:
     def get_cached_scanned_devices(self) -> Dict[str, Any]:
         """Retourne les references BLEDevice pour connexion rapide."""
         return dict(self._scanned_devices)
+
+    def register_scanned_device(self, device: Any) -> None:
+        """Enregistre un appareil scanné (accès public au registre interne).
+
+        Utilisé par BluetoothCore lors d'un scan complet de dernier recours
+        pour alimenter le cache BLEDevice sans violer l'encapsulation.
+        """
+        if device is None or not hasattr(device, "address"):
+            return
+        self._scanned_devices[device.address] = device
+        while len(self._scanned_devices) > MAX_SCANNED_DEVICES:
+            self._scanned_devices.popitem(last=False)

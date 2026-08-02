@@ -280,7 +280,7 @@ class BluetoothCore:
                 devices = await BleakScanner.discover(timeout=SCAN_TIMEOUT)
                 for d in devices:
                     if self._scanner:
-                        self._scanner._scanned_devices[d.address] = d
+                        self._scanner.register_scanned_device(d)
                     if d.address == address:
                         bledevice = d
                         break

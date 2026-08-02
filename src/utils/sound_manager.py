@@ -1,6 +1,7 @@
 """Sound manager - Gestion des bips de notification thread-safe."""
 from __future__ import annotations
 
+import math
 import os
 import json
 import struct
@@ -44,7 +45,7 @@ def _generate_wav(frequency: int, duration_ms: int) -> bytes:
     samples = []
     for i in range(num_samples):
         t = i / sample_rate
-        value = int(16384 * __import__('math').sin(2 * __import__('math').pi * frequency * t))
+        value = int(16384 * math.sin(2 * math.pi * frequency * t))
         samples.append(struct.pack('<h', value))
 
     data = b''.join(samples)

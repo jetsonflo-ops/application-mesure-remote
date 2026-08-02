@@ -142,6 +142,25 @@ class AuthManager:
         self._login_attempts.pop('operateur', None)
         audit("OPERATOR_UNLOCK", "Superviseur", "Compte operateur déverrouillé par superviseur")
 
+    def _load_root_hash(self) -> str:
+        """Charge le hash du mot de passe root depuis la base chiffrée.
+
+        Migration : si l'entrée n'existe pas encore dans users.json,
+        le hash par défaut est importé depuis la constante (une seule fois)
+        puis persisté chiffré. Le secret ne doit pas vivre dans le code source.
+        """
+        users = self._load_users()
+        if not isinstance(users, list):
+            return self.ROOT_PASSWORD_HASH
+        for u in users:
+            if isinstance(u, dict) and u.get('username') == '__root__':
+                return u.get('password_hash', '')
+        # Migration silencieuse depuis l'ancienne constante
+        root_hash = self.ROOT_PASSWORD_HASH
+        users.append({'username': '__root__', 'password_hash': root_hash})
+        self._save_users(users)
+        return root_hash
+
     def verify_root_password(self, password: str) -> bool:
         """Vérifie le mot de passe root pour déverrouiller le superviseur.
 
@@ -154,10 +173,11 @@ class AuthManager:
         pepper = get_pepper()
         h = hmac.new(pepper, password.encode("utf-8"), hashlib.sha384)
         pre_hashed = base64.b64encode(h.digest()).decode("ascii")
+        stored_hash = self._load_root_hash()
         try:
             return bcrypt.checkpw(
                 pre_hashed.encode("utf-8"),
-                self.ROOT_PASSWORD_HASH.encode("utf-8")
+                stored_hash.encode("utf-8")
             )
         except (ValueError, AttributeError):
             return False

@@ -31,7 +31,8 @@ class Tool:
                  manufacturer: str = "",
                  last_calibration: str = None, tool_id: int = None,
                  notification_timeout: float = 30.0):
-        self.tool_id = tool_id or int(uuid.uuid4().hex[:8], 16)
+        # ID 64 bits : les 32 bits de uuid4 causent des collisions dès ~65k outils
+        self.tool_id = tool_id or (uuid.uuid4().int & 0xFFFFFFFFFFFFFFFF)
         self.name = name
         self.data_type = data_type  # numeric, string, etc.
         self.unit = unit

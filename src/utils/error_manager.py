@@ -26,6 +26,7 @@ Utilisation:
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, Optional, Callable
 
@@ -41,6 +42,9 @@ logger = logging.getLogger(__name__)
 class ErrorManager:
     """Gestionnaire central d'erreurs (singleton).
 
+    Thread-safe : les mutations du dict _errors sont protégées par un
+    verrou (les callbacks BLE s'exécutent sur un thread distinct).
+
     Attributes:
         _errors: Dict des erreurs actives par cle (category, error_type).
         _ui_callback: Fonction appelee pour afficher l'erreur dans l'UI.
@@ -49,10 +53,12 @@ class ErrorManager:
     def __init__(self):
         self._errors: Dict[tuple, ErrorInfo] = {}
         self._ui_callback: Optional[Callable[[ErrorInfo], None]] = None
+        self._lock = threading.Lock()
 
     def set_ui_callback(self, callback: Callable[[ErrorInfo], None]):
         """Definit la fonction d'affichage UI (appelee par l'overlay)."""
-        self._ui_callback = callback
+        with self._lock:
+            self._ui_callback = callback
 
     def error(
         self,
@@ -73,42 +79,45 @@ class ErrorManager:
         """
         key = (category, error_type)
 
-        if key in self._errors:
-            # Erreur existante : mettre a jour compteur + date
-            info = self._errors[key]
-            info.count += 1
-            info.last_seen = datetime.now()
-            info.active = True
-            if message:
-                info.message = message
-            logger.debug(
-                "Erreur repetee %s/%s (x%d)",
-                category.name, error_type, info.count,
-            )
-        else:
-            # Nouvelle erreur
-            msg = message or get_error_message(category, error_type)
-            info = ErrorInfo(
-                category=category,
-                error_type=error_type,
-                message=msg,
-            )
-            self._errors[key] = info
-            logger.info("Erreur: [%s] %s - %s", category.name, error_type, msg)
+        with self._lock:
+            if key in self._errors:
+                # Erreur existante : mettre a jour compteur + date
+                info = self._errors[key]
+                info.count += 1
+                info.last_seen = datetime.now()
+                info.active = True
+                if message:
+                    info.message = message
+                logger.debug(
+                    "Erreur repetee %s/%s (x%d)",
+                    category.name, error_type, info.count,
+                )
+            else:
+                # Nouvelle erreur
+                msg = message or get_error_message(category, error_type)
+                info = ErrorInfo(
+                    category=category,
+                    error_type=error_type,
+                    message=msg,
+                )
+                self._errors[key] = info
+                logger.info("Erreur: [%s] %s - %s", category.name, error_type, msg)
 
-        # Notifier l'UI (thread-safe: peut etre appele depuis un thread BLE)
-        if self._ui_callback:
+            # Notifier l'UI (thread-safe: peut etre appele depuis un thread BLE)
+            ui_callback = self._ui_callback
+
+        if ui_callback is not None:
             try:
                 from PySide6.QtCore import QMetaObject, Qt, Q_ARG
                 QMetaObject.invokeMethod(
-                    self._ui_callback.__self__,
-                    self._ui_callback.__name__,
+                    ui_callback.__self__,
+                    ui_callback.__name__,
                     Qt.QueuedConnection,
                 )
             except (AttributeError, RuntimeError, TypeError):
                 # Fallback direct si pas un slot Qt bindé
                 try:
-                    self._ui_callback(info)
+                    ui_callback(info)
                 except Exception:
                     pass
 

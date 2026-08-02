@@ -149,6 +149,9 @@ class BleConnection:
         self._watchdog: Optional[ConnectionWatchdog] = None
         self._notification_timeout: float = 30.0
         self._discovered_char_uuid: Optional[str] = None
+        # Références fortes des tâches de fond — évite le garbage-collect
+        # des tâches asyncio avant leur fin (docs Python : asyncio.create_task).
+        self._background_tasks: set = set()
 
     @property
     def is_connected(self) -> bool:
@@ -224,7 +227,10 @@ class BleConnection:
                     f"Reconnexion...",
         )
         try:
-            create_task(conn.disconnect(force=True))
+            task = create_task(conn.disconnect(force=True))
+            # Référence forte : empêche le garbage-collect avant exécution
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         except RuntimeError:
             pass
 

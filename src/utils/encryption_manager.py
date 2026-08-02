@@ -22,6 +22,9 @@ class EncryptionManager:
     L'activation/désactivation dépend des paramètres globaux (superviseur uniquement).
     """
 
+    # Clé dérivée une seule fois (le pepper ne change pas en cours de session)
+    _cached_key: Optional[bytes] = None
+
     def __init__(self, config: Optional[EncryptionConfig] = None):
         """Initialise le gestionnaire avec la configuration.
 
@@ -34,11 +37,30 @@ class EncryptionManager:
     # Méthodes utilitaires de chiffrement/déchiffrement
     # =========================================================================
 
-    def _encrypt_data(self, plaintext_bytes: bytes) -> Tuple[bytes, bytes]:
+    def _get_key(self) -> bytes:
+        """Retourne la clé AES-256 dérivée (mise en cache).
+
+        La dérivation via sha256(pepper + domain) est calculée UNE SEULE
+        fois par session — le pepper est stable (voir secure_config.get_pepper).
+        """
+        if EncryptionManager._cached_key is None:
+            from src.utils.secure_config import get_pepper
+            import hashlib
+            pepper = get_pepper()
+            key_material = hashlib.sha256(pepper + b"encryption-layer").digest()
+            EncryptionManager._cached_key = key_material[:32]
+        return EncryptionManager._cached_key
+
+    def _encrypt_data(
+        self, plaintext_bytes: bytes, aad: Optional[bytes] = None
+    ) -> Tuple[bytes, bytes]:
         """Chiffre des données binaires avec AES-256-GCM.
 
         Args:
             plaintext_bytes: Données à chiffrer
+            aad: Données authentifiées (optionnel). Utilisé pour lier le
+                 chiffrement à son contexte d'usage (anti-rejeu). Le défaut
+                 None préserve la rétro-compatibilité des exports existants.
 
         Returns:
             Tuple (ciphertext, iv) - Le texte chiffré et l'IV généré aléatoirement
@@ -46,40 +68,33 @@ class EncryptionManager:
         try:
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
             import os
-            
-            # Clé de chiffrement dérivée du pepper système (géré par secure_config)
-            from src.utils.secure_config import get_pepper
-            import hashlib
-            pepper = get_pepper()
-            key_material = hashlib.sha256(pepper + b"encryption-layer").digest()
-            aesgcm = AESGCM(key_material[:32])  # Clé de 32 octets pour AES-256
 
+            aesgcm = AESGCM(self._get_key())  # Clé de 32 octets pour AES-256
             iv = os.urandom(12)  # IV de 12 octets pour AES-GCM (random secure)
-            ciphertext = aesgcm.encrypt(iv, plaintext_bytes, None)
+            ciphertext = aesgcm.encrypt(iv, plaintext_bytes, aad)
 
             return ciphertext, iv
         except ImportError:
             logger.warning("Module cryptography non disponible - chiffrement désactivé")
             raise RuntimeError("Cryptographie requise mais non installée")
 
-    def _decrypt_data(self, ciphertext: bytes, iv: bytes) -> bytes:
+    def _decrypt_data(
+        self, ciphertext: bytes, iv: bytes, aad: Optional[bytes] = None
+    ) -> bytes:
         """Déchiffre des données AES-256-GCM.
 
         Args:
             ciphertext: Données chiffrées
             iv: Vecteur d'initialisation généré à la chiffrement
+            aad: Données authentifiées utilisées au chiffrement (doit correspondre)
 
         Returns:
             Données déchiffrées en clair
         """
         try:
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-            from src.utils.secure_config import get_pepper
-            import hashlib
-            pepper = get_pepper()
-            key_material = hashlib.sha256(pepper + b"encryption-layer").digest()
-            aesgcm = AESGCM(key_material[:32])
-            plaintext = aesgcm.decrypt(iv, ciphertext, None)
+            aesgcm = AESGCM(self._get_key())
+            plaintext = aesgcm.decrypt(iv, ciphertext, aad)
             return plaintext
         except ImportError:
             logger.warning("Module cryptography non disponible - déchiffrement désactivé")
@@ -126,7 +141,11 @@ class EncryptionManager:
         if self.config.is_ble_receive_encrypted():
             try:
                 logger.info("Chiffrement des données BLE")
-                ciphertext, iv = self._encrypt_data(raw_data)
+                # AAD lié au domaine : empêche le rejeu de paquets BLE
+                # chiffrés dans un autre contexte (export, fichier).
+                ciphertext, iv = self._encrypt_data(
+                    raw_data, aad=b"application-mesure:ble-receive:v1"
+                )
                 
                 result = {
                     'encrypted': True,
@@ -157,7 +176,9 @@ class EncryptionManager:
             if data_dict.get('encrypted'):
                 ciphertext = base64.b64decode(data_dict['ciphertext'])
                 iv = base64.b64decode(data_dict['iv'])
-                return self._decrypt_data(ciphertext, iv)
+                return self._decrypt_data(
+                    ciphertext, iv, aad=b"application-mesure:ble-receive:v1"
+                )
         except Exception as e:
             logger.error(f"Erreur lors du déchiffrement BLE: {e}")
         

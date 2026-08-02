@@ -83,11 +83,18 @@ def main():
     app_logger.log("info", "Application de Mesure - Interface affichee")
 
     # Enregistrer shutdown propre
+    _shutdown_task = None
+
     def _on_about_to_quit():
         import asyncio
         loop = QtAsyncExecutor.get_loop()
         if loop.is_running():
-            asyncio.ensure_future(QtAsyncExecutor.instance().shutdown())
+            # Référence forte : la tâche ne doit pas être garbage-collectée
+            # avant la fin du shutdown (docs Python : asyncio.create_task).
+            global _shutdown_task
+            _shutdown_task = asyncio.ensure_future(
+                QtAsyncExecutor.instance().shutdown()
+            )
 
     app.aboutToQuit.connect(_on_about_to_quit)
 

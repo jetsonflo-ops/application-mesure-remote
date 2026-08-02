@@ -114,8 +114,13 @@ class FormatCard(QFrame):
         self.indicator.setStyleSheet("color: #4CAF50; font-size: 10px;")
         layout.addWidget(self.indicator)
 
-        # Clic sur la carte = toggle checkbox
-        self.mousePressEvent = lambda e: self._toggle()
+        # Clic sur la carte = toggle checkbox (surcharge mousePressEvent ci-dessous)
+
+    def mousePressEvent(self, event):
+        """Clic gauche sur la carte → toggle (surcharge propre)."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._toggle()
+        super().mousePressEvent(event)
 
     def is_checked(self) -> bool:
         return self.checkbox.isChecked()

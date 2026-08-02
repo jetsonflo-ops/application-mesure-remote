@@ -72,14 +72,16 @@ class MeasurementsRepository:
             json.dump([m.to_dict() for m in self.measurements], f, indent=2)
     
     def add_measurement(self, measurement: Measurement):
-        """Ajoute une nouvelle mesure et la sauvegarde."""
+        """Ajoute une nouvelle mesure au buffer mémoire.
+
+        Optimisé temps réel : AUCUNE écriture disque synchrone ici.
+        La persistance est déléguée à l'export (clear_exported).
+        """
         self.measurements.append(measurement)
-        
+
         # Limiter la taille du buffer (garder les 1000 dernières mesures)
         if len(self.measurements) > 1000:
             self.measurements = self.measurements[-1000:]
-        
-        self._save_measurements()
     
     def get_all(self, limit: int = None) -> List[Measurement]:
         """Retourne toutes les mesures (optionnellement limité)."""

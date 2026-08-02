@@ -29,6 +29,7 @@ class MockBleakClient:
     def __init__(self, address: str):
         self.address = address
         self.is_connected = False
+        # NB: device_name est une @property (ligne 105) dérivée de l'adresse
         self.services: Dict[str, 'MockService'] = {}
         
         # Initialiser les services selon le type d'appareil

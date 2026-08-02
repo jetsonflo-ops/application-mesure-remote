@@ -245,6 +245,7 @@ class BluetoothManager:
     def _setup_callbacks(self, tool: Tool, connection: BleConnection = None):
         """Configure le callback de notification pour traitement temps reel."""
         # UUID de caracteristique par defaut (Measurement Data)
+        # Priorite : decouverte reelle via GATT, fallback sur l'UUID standard
         char_uuid = "0000ffe1-0000-1000-8000-00805f9b34fb"
 
         async def measurement_handler(sender: int, data: bytes):
@@ -272,12 +273,25 @@ class BluetoothManager:
 
         # Si on a deja la connexion, demarrer les notifications directement
         if connection and connection.is_connected:
-            task = asyncio.create_task(
-                connection.start_notify(char_uuid, measurement_handler)
-            )
+            async def _start_notifications():
+                # 1. Decouverte GATT reelle de la caracteristique notify
+                discovered = await connection.discover_notify_characteristic()
+                uuid = discovered or char_uuid
+                # 2. Demarrer les notifications sur la caracteristique trouvee
+                ok = await connection.start_notify(uuid, measurement_handler)
+                if ok:
+                    logger.info(
+                        f"Notifications activees pour {tool.name} "
+                        f"(char {uuid})"
+                    )
+                else:
+                    logger.warning(
+                        f"Notification pour {tool.name}: echec sur {uuid}"
+                    )
+
+            task = asyncio.create_task(_start_notifications())
             self._bg_tasks.add(task)
             task.add_done_callback(self._bg_tasks.discard)
-            logger.info(f"Notifications activees pour {tool.name}")
         else:
             logger.warning(f"Notification pour {tool.name}: pas de connexion active")
 
@@ -341,7 +355,11 @@ class BluetoothManager:
             data_dicts = [m.to_dict() for m in measurements]
             
             # Utiliser EncryptionManager pour l'export
-            result_filepath = await encryption_manager.export_file(data_dicts, filepath)
+            # Exécution dans un thread séparé : pandas + écriture disque
+            # bloquent sinon l'event loop asyncio (temps réel BLE).
+            result_filepath = await asyncio.to_thread(
+                encryption_manager.export_file, data_dicts, filepath
+            )
             
             if result_filepath:
                 logger.info(f"Export realise : {result_filepath}")

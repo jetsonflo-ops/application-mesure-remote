@@ -41,15 +41,21 @@ def main():
         cwd=str(root_dir),
     )
 
-    # Copier dans installer/
+    # Copier dans installer/ avec version horodatée (pas d'écrasement)
     exe_path = dist_dir / "ApplicationMesure.exe"
     if exe_path.exists():
         print(f"Executable genere: {exe_path}")
         installer_dir = root_dir / "installer"
         installer_dir.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        versioned_name = f"ApplicationMesure_{stamp}.exe"
+        shutil.copy2(exe_path, installer_dir / versioned_name)
+        # Copie "latest" pour point d'entrée stable
         shutil.copy2(exe_path, installer_dir / "ApplicationMesure.exe")
         print("Build termine avec succes!")
-        print(f"Executable: {exe_path}")
+        print(f"Executable versionne: {installer_dir / versioned_name}")
+        print(f"Executable stable: {installer_dir / 'ApplicationMesure.exe'}")
     else:
         print(f"Erreur : {exe_path} n'a pas ete cree")
         sys.exit(1)

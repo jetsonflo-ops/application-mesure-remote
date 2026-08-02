@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Builds
+build/
+dist/
+*.spec.bak
+
+# Application runtime data (secrets, caches locaux)
+~/.application_mesure/
+pepper.key
+users.json
+*.db
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PyInstaller
+installer/
+*.exe

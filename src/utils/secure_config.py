@@ -29,7 +29,11 @@ def _secure_permissions(filepath: str) -> None:
 
 
 def _derive_key_from_user() -> bytes:
-    """Dériver une clé basée sur l'utilisateur et le hostname pour la protection du pepper."""
+    """Dériver une clé basée sur l'utilisateur et le hostname pour la protection du pepper.
+
+    Utilise PBKDF2-HMAC-SHA256 (600k itérations — recommandation OWASP 2023+)
+    au lieu d'un simple SHA256, pour résister au brute-force hors-ligne.
+    """
     # Obtenir un identifiant utilisateur STABLE (ne doit PAS changer entre restarts)
     try:
         import pwd
@@ -43,7 +47,17 @@ def _derive_key_from_user() -> bytes:
 
     hostname = platform.node() or "unknown"
     unique_string = f"appmesure:{hostname}:{uid}"
-    return hashlib.sha256(unique_string.encode()).digest()
+
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b"appmesure-pepper-key-salt-v2",
+        iterations=600_000,  # OWASP 2023+ : PBKDF2-HMAC-SHA256 → 600k itérations
+    )
+    return kdf.derive(unique_string.encode())
 
 
 def _encrypt_pepper(plaintext: bytes) -> tuple[bytes, bytes]:
@@ -116,6 +130,19 @@ def _generate_pepper(force: bool = False) -> bytes:
     return pepper
 
 
+_pepper_cache: bytes | None = None
+_pepper_cache_valid: bool = False
+
+
 def get_pepper() -> bytes:
-    """Retourne le pepper stocké ou en génère un nouveau."""
-    return _generate_pepper(force=False)
+    """Retourne le pepper stocké ou en génère un nouveau.
+
+    Cache en mémoire : le pepper ne change jamais entre deux appels
+    (le fichier est relu uniquement au premier appel ou si absent).
+    """
+    global _pepper_cache, _pepper_cache_valid
+    if _pepper_cache_valid and _pepper_cache is not None:
+        return _pepper_cache
+    _pepper_cache = _generate_pepper(force=False)
+    _pepper_cache_valid = True
+    return _pepper_cache
