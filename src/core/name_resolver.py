@@ -12,6 +12,9 @@ Stratégie de résolution (par ordre de fiabilité) :
      pairés ou présents dans le cache système Windows (MS Learn)
   4. Registre BTHPORT\\Parameters\\Devices — appareils BT classiques pairés
      (nom stocké en base64, valeur "Name")
+  5. Fabricant via Company ID publicitaire (manufacturer_data) — même pour
+     les adresses randomisées (Apple, Samsung, etc. émettent leur Company ID)
+  6. Fabricant via préfixe MAC (OUI IEEE) — adresses publiques uniquement
 """
 
 from __future__ import annotations
@@ -21,6 +24,8 @@ import base64
 import logging
 import platform
 from typing import Dict, Optional
+
+from .device_db import manufacturer_display, is_random_address
 
 logger = logging.getLogger(__name__)
 
@@ -142,17 +147,22 @@ async def _resolve_winrt(address: str) -> Optional[str]:
     return None
 
 
-async def resolve_name(address: str, local_name: Optional[str],
-                       device_name: Optional[str]) -> str:
-    """Retourne le meilleur nom disponible pour un appareil BLE.
+async def resolve_name(
+    address: str,
+    local_name: Optional[str],
+    device_name: Optional[str],
+    company_id: Optional[int] = None,
+) -> str:
+    """Retourne le meilleur nom/fabricant disponible pour un appareil BLE.
 
     Args:
         address: Adresse MAC de l'appareil
         local_name: Nom de la trame publicitaire (adv.local_name)
         device_name: Nom OS fourni par bleak (BLEDevice.name)
+        company_id: Company ID Bluetooth SIG des données publicitaires
 
     Returns:
-        Nom affichable, ou "Inconnu" si aucune source ne le fournit.
+        Nom affichable, ou fabricant, ou "Inconnu".
     """
     # 1. Nom déjà en cache
     cached = _resolved_names.get(address)
@@ -161,6 +171,10 @@ async def resolve_name(address: str, local_name: Optional[str],
 
     # 1b. Échec récent → éviter de marteler WinRT (trames répétées ~1x/s)
     if _is_failed(address):
+        # Même en échec, on tente le fabricant (pas de WinRT requis)
+        mfr = manufacturer_display(company_id, address)
+        if mfr:
+            return f"Appareil {mfr}"
         return "Inconnu"
 
     # 2. local_name (trame publicitaire) — prioritaire
@@ -186,6 +200,13 @@ async def resolve_name(address: str, local_name: Optional[str],
     if reg_name:
         _resolved_names[address] = reg_name
         return reg_name
+
+    # 6. Fabricant via Company ID publicitaire (même adresse randomisée)
+    mfr = manufacturer_display(company_id, address)
+    if mfr:
+        display = f"Appareil {mfr}"
+        _resolved_names[address] = display
+        return display
 
     # Échec : mémoriser pour ne pas réessayer avant TTL
     import time

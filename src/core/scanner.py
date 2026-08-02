@@ -169,10 +169,10 @@ class BleScanner:
         if not final_name and existing and existing.name and existing.name != "Inconnu":
             final_name = existing.name
 
-        # Dernier recours : résolution WinRT / registre Windows (pairé)
+        # Dernier recours : résolution WinRT / registre / fabricant
         if not final_name:
             try:
-                final_name = await resolve_name(address, None, None)
+                final_name = await resolve_name(address, None, None, mfr_id)
             except Exception:
                 final_name = None
 
@@ -272,11 +272,13 @@ class BleScanner:
             while len(self._scanned_devices) > MAX_SCANNED_DEVICES:
                 self._scanned_devices.popitem(last=False)
 
-        # Résolution WinRT des noms manquants (appareils pairés Windows)
+        # Résolution WinRT / fabricant des noms manquants (pairés Windows)
         for dev in results:
             if not (dev.name and dev.name.strip()):
                 try:
-                    dev.name = await resolve_name(dev.address, None, None)
+                    dev.name = await resolve_name(
+                        dev.address, None, None, dev.manufacturer_id
+                    )
                 except Exception:
                     pass
 

@@ -39,6 +39,7 @@ from .scanner import BleScanner
 from .parser import BleDataParser
 from .pairing import unpair_device, remove_from_cache, forget_device, list_paired_devices
 from .name_resolver import resolve_name, enrich_all, clear_cache
+from .device_db import company_name, oui_name, manufacturer_display, is_random_address
 
 __all__ = [
     # Types & constants
@@ -65,4 +66,9 @@ __all__ = [
     "resolve_name",
     "enrich_all",
     "clear_cache",
+    # Device identification databases
+    "company_name",
+    "oui_name",
+    "manufacturer_display",
+    "is_random_address",
 ]
