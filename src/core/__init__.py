@@ -38,6 +38,7 @@ from .connection import ConnectionWatchdog, BleConnection
 from .scanner import BleScanner
 from .parser import BleDataParser
 from .pairing import unpair_device, remove_from_cache, forget_device, list_paired_devices
+from .name_resolver import resolve_name, enrich_all, clear_cache
 
 __all__ = [
     # Types & constants
@@ -60,4 +61,8 @@ __all__ = [
     "remove_from_cache",
     "forget_device",
     "list_paired_devices",
+    # Name resolution
+    "resolve_name",
+    "enrich_all",
+    "clear_cache",
 ]

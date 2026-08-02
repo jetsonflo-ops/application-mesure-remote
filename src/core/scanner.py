@@ -19,6 +19,7 @@ from .types import (
 )
 from .device_cache import DeviceCache
 from .profiler import DeviceProfiler
+from .name_resolver import resolve_name
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,8 @@ class BleScanner:
         try:
             self._continuous_scanner = BleakScanner(
                 detection_callback=self._on_advertisement,
+                scanning_mode="active",  # Déclenche la SCAN_REQ → SCAN_RSP
+                # (la scan response contient souvent le nom local — doc bleak)
             )
             await self._continuous_scanner.start()
         except BleakError as exc:
@@ -88,20 +91,29 @@ class BleScanner:
         
         self._scanned_devices.clear()
 
-    def _on_advertisement(
+    async def _on_advertisement(
         self, device: Any, advertisement_data: Any
     ) -> None:
-        """Callback interne de scan continu — notification et cache."""
+        """Callback interne de scan continu — notification et cache.
+
+        Coroutine async : bleak exécute les callbacks coroutine dans l'event
+        loop (changelog bleak 0.10.0 — Windows garantit l'exécution dans le
+        thread de l'event loop asyncio). Permet la résolution WinRT du nom.
+        """
         if not self._running:
             return
 
         try:
             address = device.address if hasattr(device, "address") else str(device)
-            name = (
-                advertisement_data.local_name
-                if hasattr(advertisement_data, "local_name")
-                else (device.name if hasattr(device, "name") else None)
-            )
+            # BUG FIX : hasattr(local_name) est TOUJOURS True (l'attribut existe
+            # même quand il vaut None). Le nom est souvent envoyé dans la
+            # SCAN RESPONSE, pas dans la trame initiale → device.name (nom OS)
+            # est rempli par bleak après la réponse. Il faut donc tester la
+            # VALEUR, pas l'existence de l'attribut.
+            local_name = getattr(advertisement_data, "local_name", None)
+            os_name = getattr(device, "name", None)
+            # Priorité : local_name (trame) > device.name (scan response OS)
+            name = local_name or os_name
             rssi = advertisement_data.rssi if hasattr(advertisement_data, "rssi") else -100
             mfr_data = (
                 advertisement_data.manufacturer_data
@@ -144,10 +156,26 @@ class BleScanner:
             is_connectable=True,
         )
 
+        # Ne PAS écraser un nom déjà connu par "Inconnu" : les trames
+        # publicitaires se répètent toutes les ~100ms-1s, et le nom n'arrive
+        # souvent qu'avec la scan response (2e trame). Si on écrase, le nom
+        # disparaît dès qu'une trame sans nom est reçue.
+        existing = self.device_cache.get(address)
+        final_name = name
+        if not final_name and existing and existing.name and existing.name != "Inconnu":
+            final_name = existing.name
+
+        # Dernier recours : résolution WinRT / registre Windows (pairé)
+        if not final_name:
+            try:
+                final_name = await resolve_name(address, None, None)
+            except Exception:
+                final_name = None
+
         self.device_cache.upsert(
             BleDeviceInfo(
                 address=address,
-                name=name or "Inconnu",
+                name=final_name or "Inconnu",
                 rssi=rssi,
                 manufacturer_id=mfr_id,
                 service_uuids=svc_uuids,
@@ -188,7 +216,11 @@ class BleScanner:
 
         async with self._scan_lock:
             try:
-                devices = await BleakScanner.discover(timeout=timeout, return_adv=True)
+                devices = await BleakScanner.discover(
+                    timeout=timeout,
+                    return_adv=True,
+                    scanning_mode="active",  # SCAN_RSP → noms complets
+                )
             except BleakError as exc:
                 logger.error(f"BLE core: erreur scan: {exc}")
                 error_manager.error(
@@ -206,8 +238,14 @@ class BleScanner:
                 list(adv_data.service_uuids) if hasattr(adv_data, "service_uuids") else []
             )
 
+            # BUG FIX : tester la VALEUR de local_name, pas l'existence
+            # (hasattr est toujours True quand l'attribut existe mais vaut None).
+            local_name = getattr(adv_data, "local_name", None) or None
+            os_name = getattr(device, "name", None) or None
+            dev_name = local_name or os_name
+
             dev_type = DeviceProfiler.profile(
-                name=device.name,
+                name=dev_name,
                 service_uuids=svc_uuids,
                 manufacturer_id=mfr_id,
                 manufacturer_data=mfr_raw,
@@ -215,7 +253,7 @@ class BleScanner:
 
             discovered = DiscoveredDevice(
                 address=address,
-                name=device.name,
+                name=dev_name,
                 rssi=adv_data.rssi if hasattr(adv_data, "rssi") else -100,
                 manufacturer_id=mfr_id,
                 manufacturer_data=mfr_raw,
@@ -229,6 +267,14 @@ class BleScanner:
             self._scanned_devices[address] = device
             while len(self._scanned_devices) > MAX_SCANNED_DEVICES:
                 self._scanned_devices.popitem(last=False)
+
+        # Résolution WinRT des noms manquants (appareils pairés Windows)
+        for dev in results:
+            if not (dev.name and dev.name.strip()):
+                try:
+                    dev.name = await resolve_name(dev.address, None, None)
+                except Exception:
+                    pass
 
         self.device_cache.merge_scan_results(results)
 

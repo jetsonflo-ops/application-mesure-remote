@@ -76,7 +76,7 @@ MAX_CONCURRENT_CONNECTIONS: int = 3
 MAX_SCANNED_DEVICES: int = 200  # LRU max — eviction des plus anciens
 
 # Timeouts
-SCAN_TIMEOUT: float = 8.0
+SCAN_TIMEOUT: float = 12.0
 CONNECT_TIMEOUT: float = 20.0
 FIND_DEVICE_TIMEOUT: float = 10.0
 OPERATION_TIMEOUT: float = 15.0
